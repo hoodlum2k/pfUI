@@ -578,25 +578,19 @@ nameplates:RegisterEvent("UNIT_FLAGS")
       end
 
     elseif event == "PLAYER_TARGET_CHANGED" then
-      -- Flag target plate for update via GUID registry
-      local targetGuid = UnitGUID("target")
-      if targetGuid then
-        local plate = C_NamePlate.GetNamePlateForGUID(targetGuid)
-        if plate and plate.nameplate then
-          plate.nameplate.targetUpdate = true
-        end
+      -- Flag the target's plate for update
+      local plate = C_NamePlate.GetNamePlateForUnit("target")
+      if plate and plate.nameplate then
+        plate.nameplate.targetUpdate = true
       end
       -- Also propagate to all plates for alpha/strata updates
       this.eventcache = true
 
     elseif event == "PLAYER_COMBO_POINTS" or event == "UNIT_COMBO_POINTS" then
-      -- Only flag the target plate for combo point update
-      local targetGuid = UnitGUID("target")
-      if targetGuid then
-        local plate = C_NamePlate.GetNamePlateForGUID(targetGuid)
-        if plate and plate.nameplate then
-          plate.nameplate.comboUpdate = true
-        end
+      -- Only flag the target's plate for combo point update
+      local plate = C_NamePlate.GetNamePlateForUnit("target")
+      if plate and plate.nameplate then
+        plate.nameplate.comboUpdate = true
       end
     else
       this.eventcache = true
@@ -1258,19 +1252,7 @@ nameplates:RegisterEvent("UNIT_FLAGS")
   end
 
   nameplates.OnShow = function(frame)
-    local frame = frame or this
-    local nameplate = frame.nameplate
-
-    -- cachedGuid is set by NAME_PLATE_UNIT_ADDED before this fires
-    local guid = nameplate.cachedGuid
-    if guid and pfUI.api.libunitscan and pfUI.api.libunitscan.ScanGuid then
-      -- notify libunitscan so it can cache unit data without mouseover
-      local name = nameplate.original.name:GetText()
-      local npcFlags = GetUnitField(guid, "npcFlags") or 0
-      pfUI.api.libunitscan.ScanGuid(guid, name, npcFlags == 0)
-    end
-
-    nameplates:OnDataChanged(nameplate)
+    nameplates:OnDataChanged((frame or this).nameplate)
   end
 
   nameplates.OnUpdate = function(frame, state)
@@ -1362,8 +1344,7 @@ nameplates:RegisterEvent("UNIT_FLAGS")
 
     if C.nameplates["overlap"] == "1" then
       if frame:GetWidth() > 1 then
-        frame:SetWidth(1)
-        frame:SetHeight(1)
+        frame:SetSize(1, 1)
       end
     else
       if not nameplate.dwidth then
@@ -1371,8 +1352,9 @@ nameplates:RegisterEvent("UNIT_FLAGS")
       end
 
       if floor(frame:GetWidth()) ~= nameplate.dwidth then
-        frame:SetWidth(nameplate:GetWidth() * UIParent:GetScale())
-        frame:SetHeight(nameplate:GetHeight() * UIParent:GetScale())
+        local nameW, nameH = nameplate:GetSize()
+        local uiScale = UIParent:GetScale()
+        frame:SetSize(nameW * uiScale, nameH * uiScale)
       end
     end
 
@@ -1429,13 +1411,7 @@ nameplates:RegisterEvent("UNIT_FLAGS")
 
     -- trigger update when name color changed (includes combat state check)
     local r, g, b = original.name:GetTextColor()
-    local inCombatWithPlayer = false
-    if cfg.namefightcolor then
-      local guid = nameplate.cachedGuid
-      if guid then
-        inCombatWithPlayer = UnitAffectingCombat(guid) and UnitAffectingCombat("player")
-      end
-    end
+    local inCombatWithPlayer = cfg.namefightcolor and UnitAffectingCombat(nameplate.unit) and UnitAffectingCombat("player")
     
     if r + g + b ~= nameplate.cache.namecolor or (cfg.namefightcolor and nameplate.cache.inCombat ~= inCombatWithPlayer) then
       nameplate.cache.namecolor = r + g + b
@@ -1483,7 +1459,7 @@ nameplates:RegisterEvent("UNIT_FLAGS")
         nameplate.health.targetHeight = hc
       end
       
-      local w, h = nameplate.health:GetWidth(), nameplate.health:GetHeight()
+      local w, h = nameplate.health:GetSize()
       local wc, hc = nameplate.health.targetWidth, nameplate.health.targetHeight
       
       if wc and hc then
@@ -1503,7 +1479,7 @@ nameplates:RegisterEvent("UNIT_FLAGS")
         end
       end
     elseif nameplate.health.zoomed or nameplate.health.zoomTransition then
-      local w, h = nameplate.health:GetWidth(), nameplate.health:GetHeight()
+      local w, h = nameplate.health:GetSize()
       local wc = cfg.width
       local hc = cfg.heighthealth
 
@@ -1512,8 +1488,7 @@ nameplates:RegisterEvent("UNIT_FLAGS")
       elseif h > hc + 0.5 then
         nameplate.health:SetHeight(h*0.95)
       else
-        nameplate.health:SetWidth(wc)
-        nameplate.health:SetHeight(hc)
+        nameplate.health:SetSize(wc, hc)
         nameplate.health.zoomTransition = nil
         nameplate.health.zoomed = nil
         nameplate.health.targetWidth = nil
@@ -1625,10 +1600,7 @@ nameplates:RegisterEvent("UNIT_FLAGS")
     if (this.tick or 0) > now then return end
     this.tick = now + throttle
 
-    local targetGuid = UnitExists("target") and UnitGUID("target")
-    if not targetGuid then return end
-
-    local frame = C_NamePlate.GetNamePlateForGUID(targetGuid)
+    local frame = C_NamePlate.GetNamePlateForUnit("target")
     if not frame or not frame.nameplate then return end
 
     nameplates.UpdateCastbar(frame.nameplate, now)
