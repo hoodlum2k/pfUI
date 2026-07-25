@@ -140,7 +140,6 @@ end
 -- It takes care of the rangecheck module if existing.
 -- unit         [string]        A unit to query (string, unitID)
 -- return:      [bool]          "1" if in range otherwise "nil"
-local RangeCache = {}
 function pfUI.api.UnitInRange(unit)
   if not UnitExists(unit) or not UnitIsVisible(unit) then
     return nil
