@@ -131,7 +131,7 @@ pfUI:RegisterSkin("Character", function ()
 
         if ShaguScore and itemID then
           local itemLevel = C_Item.GetCurrentItemLevel({ equipmentSlotIndex = slotId })
-          local _, _, quality, _, _, _, _, _, itemSlot, _ = GetItemInfo(itemID)
+          local _, _, quality, _, _, _, _, _, itemSlot, _ = C_Item.GetItemInfo(itemID)
           local score = ShaguScore:Calculate(itemSlot, quality, itemLevel)
           if score and score > 0 and quality and quality > 0 then
             local r,g,b = GetItemQualityColor(quality)
