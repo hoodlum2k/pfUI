@@ -64,6 +64,10 @@ end
 -- Requires UnitXP_SP3
 function pfUI.api.UnitInLineOfSight(unit1, unit2)
   if not pfUI.api.HasUnitXP() then return nil end
+  if not unit2 then
+    unit2 = unit1
+    unit1 = "player"
+  end
   local success, inSight = pcall(UnitXP, "inSight", unit1, unit2)
   if success then return inSight end
   return nil
@@ -74,6 +78,10 @@ end
 -- Requires UnitXP_SP3
 function pfUI.api.UnitIsBehind(unit1, unit2)
   if not pfUI.api.HasUnitXP() then return nil end
+  if not unit2 then
+    unit2 = unit1
+    unit1 = "player"
+  end
   local success, behind = pcall(UnitXP, "behind", unit1, unit2)
   if success then return behind end
   return nil
