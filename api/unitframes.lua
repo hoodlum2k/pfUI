@@ -21,6 +21,7 @@ end
 -- slash command to toggle unitframe test mode
 pfUI.api.RegisterSlashCommand("PFTEST", { "/pftest", "/pfuftest" }, function()
   pfUI.uf.showall = not pfUI.uf.showall
+  if pfUI.uf.raid and pfUI.uf.raid.LayoutPets then pfUI.uf.raid:LayoutPets() end
 end, true)
 
 -- HoT buff indicators that need name verification because their icons are
