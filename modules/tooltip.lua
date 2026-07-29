@@ -32,10 +32,6 @@ pfUI:RegisterModule("tooltip", function ()
           local size = tonumber(C.tooltip.cursoroffset) * 2
           tooltip.cursor:SetSize(size, size)
           tooltip.cursor:SetScript("OnUpdate", function()
-            -- throttle - cursor following doesn't need to be every frame
-            if (this.tick or 0) > GetTime() then return end
-            this.tick = GetTime() + (pfUI.throttle and pfUI.throttle:Get("tooltip_cursor") or 0.1)
-
             local scale = UIParent:GetScale()
             local x, y = GetCursorPosition()
             this:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x/scale, y/scale)
