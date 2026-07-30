@@ -1182,15 +1182,9 @@ end
 function pfUI.uf.OnEnter()
   if not this.label then return end
 
-  -- Nampower: Set native mouseover unit for macro/addon compatibility
-  if SetMouseoverUnit then
-    local unitstr = this.label .. this.id
-    -- For GUID-based frames (focus), use the GUID directly
-    if this.label and string.find(this.label, "^0x") then
-      SetMouseoverUnit(this.label)
-    elseif UnitExists(unitstr) then
-      SetMouseoverUnit(unitstr)
-    end
+  local unitstr = this.label .. this.id
+  if UnitExists(unitstr) then
+    SetMouseoverUnit(unitstr)
   end
 
   if this.config.showtooltip == "0" then return end
@@ -1200,10 +1194,7 @@ function pfUI.uf.OnEnter()
 end
 
 function pfUI.uf.OnLeave()
-  -- Nampower: Clear native mouseover unit
-  if SetMouseoverUnit then
-    SetMouseoverUnit()
-  end
+  SetMouseoverUnit("")
 
   GameTooltip:FadeOut()
 end
@@ -1528,7 +1519,7 @@ function pfUI.uf:RefreshIndicators(unit)
   end
 
   if unit.happinessIcon and unit:GetName() == "pfPet" then -- Happiness Icon
-    local _, pclass = UnitClass("player")
+    local pclass = UnitClassBase("player")
     if unit.config.happinessicon == "0" or pclass ~= "HUNTER" then
       unit.happinessIcon:Hide()
     else
@@ -1572,7 +1563,7 @@ function pfUI.uf:UpdateDruidMana(unit)
   local unitstr = unit.label .. unit.id
   if not UnitExists(unitstr) then bar:Hide() return end
   if unit.label ~= "player" then
-    local _, cls = UnitClass(unitstr)
+    local cls = UnitClassBase(unitstr)
     if cls ~= "DRUID" then bar:Hide() return end
   end
   if UnitPowerType(unitstr) == Enum.PowerType.Mana then bar:Hide() return end
@@ -2226,7 +2217,7 @@ function pfUI.uf:ClickAction(button)
 
   -- drop food on petframe
   if label == "pet" and CursorHasItem() then
-    local _, playerClass = UnitClass("player")
+    local playerClass = UnitClassBase("player")
     if playerClass == "HUNTER" then
       DropItemOnUnit("pet")
       return
@@ -2336,7 +2327,7 @@ function pfUI.uf:HideIcon(frame, pos)
 end
 
 function pfUI.uf:SetupDebuffFilter(allclasses)
-  local _, myclass = UnitClass("player")
+  local myclass = UnitClassBase("player")
   local debuffs = {}
 
   if myclass == "PALADIN" or myclass == "PRIEST" or myclass == "WARLOCK" or allclasses then
@@ -2359,7 +2350,7 @@ function pfUI.uf:SetupDebuffFilter(allclasses)
 end
 
 function pfUI.uf:SetupBuffIndicators(config)
-  local _, myclass = UnitClass("player")
+  local myclass = UnitClassBase("player")
   local indicators = {}
 
   if config.show_buffs == "1" then -- buffs
