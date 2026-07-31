@@ -4,7 +4,6 @@ pfUI:RegisterModule("nameplates", function ()
 
   -- Local function references for performance
   local GetTime = GetTime
-  local UnitExists = UnitExists
   local UnitName = UnitName
   local UnitClass = UnitClass
   local UnitLevel = UnitLevel
@@ -73,7 +72,6 @@ pfUI:RegisterModule("nameplates", function ()
   -- guid -> nameplate, maintained on NAME_PLATE_UNIT_ADDED/_REMOVED so a cast
   -- event can find its plate in O(1) and only cache casts we actually show.
   local plateByGuid = {}
-  local targetPlateGuid = nil
 
   -- One-shot C_Spell poll. Only used to seed a plate that spawns while its
   -- unit is already mid-cast (its SPELL_START_OTHER fired before the plate
@@ -181,7 +179,6 @@ pfUI:RegisterModule("nameplates", function ()
   -- ============================================================================
   local frameState = {
     now = 0,
-    hasTarget = false,
     targetGuid = nil,
     mouseoverGuid = nil,
   }
@@ -479,9 +476,7 @@ nameplates:RegisterEvent("NAME_PLATE_UNIT_ADDED")
 nameplates:RegisterEvent("NAME_PLATE_UNIT_REMOVED")
 nameplates:RegisterEvent("UNIT_AURA")
 nameplates:RegisterEvent("UNIT_FLAGS")
--- nampower cast lifecycle for other units (gated by NP_EnableSpell{Start,Go}
--- Events, enabled by libdebuff). Drives castbars event-first instead of
--- polling C_Spell on every plate each tick. Mirrors castbar.lua's target bar.
+nameplates:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
 nameplates:RegisterEvent("SPELL_START_OTHER")
 nameplates:RegisterEvent("SPELL_FAILED_OTHER")
   
@@ -501,7 +496,7 @@ nameplates:RegisterEvent("SPELL_FAILED_OTHER")
         CacheConfig()
         this:SetGameVariables()
         RebuildRaidGuidCache()
-        targetPlateGuid = UnitExists("target") and UnitGUID("target") or nil
+        frameState.targetGuid = UnitGUID("target")
       end
       
       -- Handle friendly zone nameplate disable feature
@@ -596,15 +591,22 @@ nameplates:RegisterEvent("SPELL_FAILED_OTHER")
       end
 
     elseif event == "UNIT_FLAGS" then
-      -- ClassicAPI: fires with arg1 == "nameplateN" when a unit's flags change
-      -- (stun, combat enter/leave). Flag that plate for an immediate update,
-      -- bypassing the throttle. Guard on the token prefix -- UNIT_FLAGS also
-      -- fires for target/party/raid, which aren't ours to handle here.
       if arg1 and strfind(arg1, "^nameplate") then
         local plate = C_NamePlate.GetNamePlateForUnit(arg1)
         if plate and plate.nameplate then
           plate.nameplate.eventcache = true
         end
+      end
+
+    elseif event == "UPDATE_MOUSEOVER_UNIT" then
+      local new = UnitGUID("mouseover")
+      local old = frameState.mouseoverGuid
+      if new ~= old then
+        frameState.mouseoverGuid = new
+        local po = old and plateByGuid[old]
+        if po then po.eventcache = true end
+        local pn = new and plateByGuid[new]
+        if pn then pn.eventcache = true end
       end
 
     elseif event == "SPELL_START_OTHER" then
@@ -657,7 +659,7 @@ nameplates:RegisterEvent("SPELL_FAILED_OTHER")
       end
 
     elseif event == "PLAYER_TARGET_CHANGED" then
-      targetPlateGuid = UnitExists("target") and UnitGUID("target") or nil
+      frameState.targetGuid = UnitGUID('target')
       -- Flag the target's plate for update
       local plate = C_NamePlate.GetNamePlateForUnit("target")
       if plate and plate.nameplate then
@@ -686,13 +688,7 @@ nameplates:RegisterEvent("SPELL_FAILED_OTHER")
 
     -- PERF: Cache GetTime() once per frame
     frameState.now = now
-    frameState.hasTarget, frameState.targetGuid = UnitExists("target")
-    frameState.mouseoverGuid = UnitGUID("mouseover")
 
-    -- propagate a global refresh to all active plates. Set the flag on the
-    -- overlay (nameplate) -- that's what OnUpdate reads for hasEventUpdate; the
-    -- base frame's .eventcache is never read. Only visible plates need it
-    -- (hidden pool slots refresh on OnShow), matching the OnUpdate loop.
     if this.eventcache then
       this.eventcache = nil
       for plate in pairs(visiblePlates) do
@@ -700,11 +696,6 @@ nameplates:RegisterEvent("SPELL_FAILED_OTHER")
       end
     end
 
-    -- visiblePlateCount is maintained event-driven via NAME_PLATE_UNIT_ADDED/_REMOVED.
-
-    -- Central OnUpdate for active plates only. visiblePlates is maintained by
-    -- NAME_PLATE_UNIT_ADDED/_REMOVED, so hidden pool slots aren't iterated; the
-    -- IsVisible guard stays as a cheap safety net for transient hides.
     for plate in pairs(visiblePlates) do
       if plate:IsVisible() then
         nameplates.OnUpdate(plate, frameState)
@@ -1346,7 +1337,7 @@ nameplates:RegisterEvent("SPELL_FAILED_OTHER")
     -- and immediately correct on de-target (unlike istarget which updates one tick later)
     local targetGuid = state and state.targetGuid
     local target = (targetGuid and nameplate.cachedGuid and targetGuid == nameplate.cachedGuid) or
-                   (state and state.hasTarget and frame:GetAlpha() >= 0.99) or nil
+                   (state and state.targetGuid and frame:GetAlpha() >= 0.99) or nil
     -- Target plate castbar runs on its own dedicated frame (nameplates.castbarFrame).
     -- For non-target plates with castbar active, use castbar throttle to ensure
     -- smooth animation without overloading the central loop.
@@ -1460,7 +1451,7 @@ nameplates:RegisterEvent("SPELL_FAILED_OTHER")
 
     -- Set non-target plate alpha
     local configAlpha = cfg.notargalpha or 0.5
-    local desiredAlpha = (target or not state.hasTarget) and 1 or configAlpha
+    local desiredAlpha = (target or not state.targetGuid) and 1 or configAlpha
 
     if nameplate.cachedAlpha ~= desiredAlpha then
       nameplate:SetAlpha(desiredAlpha)
@@ -1551,8 +1542,7 @@ nameplates:RegisterEvent("SPELL_FAILED_OTHER")
           nameplate.health.zoomTransition = true
         else
           if nameplate.health.zoomTransition then
-            nameplate.health:SetWidth(wc)
-            nameplate.health:SetHeight(hc)
+            nameplate.health:SetSize(wc, hc)
             nameplate.health.zoomTransition = nil
           end
           nameplate.health.zoomed = true
@@ -1677,8 +1667,8 @@ nameplates:RegisterEvent("SPELL_FAILED_OTHER")
   -- loop's nameplates_castbar gate.)
   nameplates.castbarFrame = CreateFrame("Frame", nil, UIParent)
   nameplates.castbarFrame:SetScript("OnUpdate", function()
-    if not cfg.showcastbar or not targetPlateGuid then return end
-    local nameplate = plateByGuid[targetPlateGuid]
+    if not cfg.showcastbar or not frameState.targetGuid then return end
+    local nameplate = plateByGuid[frameState.targetGuid]
     if not nameplate then return end
     nameplates.UpdateCastbar(nameplate, GetTime())
   end)
