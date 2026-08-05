@@ -600,17 +600,17 @@ pfUI:RegisterModule("actionbar", function ()
     -- update usable [out-of-range = 1, oom = 2, not-usable = 3, default = 0]
     if self.outofrange and C.bars.glowrange == "1" then
       if self.vertexstate ~= 1 then
-        self.icon:SetVertexColor(self.rangeColor[1], self.rangeColor[2], self.rangeColor[3], self.rangeColor[4])
+        self.icon:SetVertexColor(self.rangeColor:GetRGBA())
         self.vertexstate = 1
       end
     elseif oom and C.bars.showoom == "1" then
       if self.vertexstate ~= 2 then
-        self.icon:SetVertexColor(self.oomColor[1], self.oomColor[2], self.oomColor[3], self.oomColor[4])
+        self.icon:SetVertexColor(self.oomColor:GetRGBA())
         self.vertexstate = 2
       end
     elseif not usable and C.bars.showna == "1" then
       if self.vertexstate ~= 3 then
-        self.icon:SetVertexColor(self.naColor[1], self.naColor[2], self.naColor[3], self.naColor[4])
+        self.icon:SetVertexColor(self.naColor:GetRGBA())
         self.vertexstate = 3
       end
     else
@@ -992,13 +992,13 @@ pfUI:RegisterModule("actionbar", function ()
     local font_offset = tonumber(C.bars.font_offset)
 
     local macro_size = tonumber(C.bars.macro_size)
-    local macro_color = { strsplit(",", C.bars.macro_color) }
+    local macro_color = { GetStringColor(C.bars.macro_color) }
 
     local count_size = tonumber(C.bars.count_size)
-    local count_color = { strsplit(",", C.bars.count_color) }
+    local count_color = { GetStringColor(C.bars.count_color) }
 
     local bind_size = tonumber(C.bars.bind_size)
-    local bind_color = { strsplit(",", C.bars.bind_color) }
+    local bind_color = { GetStringColor(C.bars.bind_color) }
 
     local cd_size = tonumber(C.bars.cd_size)
 
@@ -1157,17 +1157,17 @@ pfUI:RegisterModule("actionbar", function ()
     end
 
     -- range glow color
-    f.rangeColor = { strsplit(",", C.bars.rangecolor) }
+    f.rangeColor = GetStringColorObject(C.bars.rangecolor)
 
     -- out of mana color
-    f.oomColor = { strsplit(",", C.bars.oomcolor) }
+    f.oomColor = GetStringColorObject(C.bars.oomcolor)
 
     -- not usable color
-    f.naColor = { strsplit(",", C.bars.nacolor) }
+    f.naColor = GetStringColorObject(C.bars.nacolor)
 
     -- equipped color
     if f.equipped then
-      f.equipped:SetTexture(strsplit(",", C.bars.eqcolor))
+      f.equipped:SetTexture(GetStringColor(C.bars.eqcolor))
     end
 
     -- general appearance
@@ -1546,7 +1546,7 @@ pfUI:RegisterModule("actionbar", function ()
     -- via GetActionInfo + C_Spell.GetSpellReagents. Macro actions and
     -- bag-item actions are skipped (their reagent resolution would need a
     -- macro-body parse / item-effect lookup that we don't bother with).
-    local UpdateSlot = function(slot)
+    local function UpdateSlot(slot)
       local newID = nil
       if HasAction(slot) then
         local kind, spellID = GetActionInfo(slot)
@@ -1561,8 +1561,18 @@ pfUI:RegisterModule("actionbar", function ()
       if reagent_slots[slot] ~= newID then
         reagent_slots[slot] = newID
         if newID then
-          reagent_counts[newID] = reagent_counts[newID] or 0
+          reagent_counts[newID] = reagent_counts[newID] or C_Item.GetItemCount(newID)
         end
+        updatecache[slot] = true
+      end
+    end
+
+    -- Recount every tracked reagent and flag its buttons for a refresh.
+    local RecountReagents = function()
+      for itemID in pairs(reagent_counts) do
+        reagent_counts[itemID] = C_Item.GetItemCount(itemID)
+      end
+      for slot in pairs(reagent_slots) do
         updatecache[slot] = true
       end
     end
@@ -1572,47 +1582,21 @@ pfUI:RegisterModule("actionbar", function ()
     reagentcounter:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
     reagentcounter:RegisterEvent("BAG_UPDATE_DELAYED")
     reagentcounter:SetScript("OnEvent", function()
-      if event == "BAG_UPDATE_DELAYED" then
-        this.event = true
+      if event == "ACTIONBAR_SLOT_CHANGED" then
+        -- arg1 is the changed slot; 0 (or nil) means "all slots"
+        if arg1 and arg1 > 0 then
+          UpdateSlot(arg1)
+        else
+          for slot = 1, 120 do UpdateSlot(slot) end
+        end
+      elseif event == "BAG_UPDATE_DELAYED" then
+        -- inventory changed: refresh the counts we already track
+        RecountReagents()
       else
-        this.scan = 1
+        -- PLAYER_ENTERING_WORLD: seed the full reagent map (UpdateSlot seeds
+        -- each new reagent's count; a BAG_UPDATE_DELAYED follows during login)
+        for slot = 1, 120 do UpdateSlot(slot) end
       end
-    end)
-
-    -- Reagent counter update with throttle for performance optimization
-    reagentcounter:SetScript("OnUpdate", function()
-      -- Throttle entire function to 10 FPS for smooth scanning
-      if (this.tick_update or 0) > GetTime() then return end
-      this.tick_update = GetTime() + 0.1
-      
-      -- scan one action slot per update
-      if this.scan and this.scan <= 120 then
-        UpdateSlot(this.scan)
-        this.scan = this.scan + 1
-      end
-
-      -- trigger reagent count updates after action scans
-      if this.scan and this.scan >= 120 then
-        this.event = true
-        this.scan = nil
-      end
-
-      -- queue events to fire only once per second
-      if not this.event then return end
-      if ( this.tick or 1) > GetTime() then return else this.tick = GetTime() + 1 end
-
-      -- scan for all reagent item counts
-      for itemID in pairs(reagent_counts) do
-        reagent_counts[itemID] = C_Item.GetItemCount(itemID)
-      end
-
-      -- update all actionbar buttons
-      for slot in pairs(reagent_slots) do
-        updatecache[slot] = true
-      end
-
-      -- remove event trigger
-      this.event = nil
     end)
 
     function IsReagentAction(slot)

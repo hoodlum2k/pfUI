@@ -39,17 +39,20 @@ pfUI:RegisterModule("player", function ()
   playerFrame.isSpellCaster = myclass ~= "WARRIOR" and myclass ~= "ROGUE" and myclass ~= "HUNTER"
 
   -- Convert "r,g,b,a" config color string to a 6-char hex string, or nil if unset
-  local function cfgColorToHex(colorStr)
-    if not colorStr or colorStr == "" then return nil end
-    local r, g, b = strsplit(",", colorStr)
-    r, g, b = tonumber(r), tonumber(g), tonumber(b)
-    if not r or not g or not b then return nil end
-    return string.format("%02X%02X%02X", r * 255, g * 255, b * 255)
-  end
+  local cfgColorToHexTable = setmetatable({}, {
+    __index = function (t, colorStr)
+      if not colorStr or colorStr == "" then return nil end
+      local r, g, b = GetStringColor(colorStr)
+      if not r or not g or not b then return nil end
+      local hex = C_ColorUtil.GenerateTextColorCode({ r=r, g = g, b=b})
+      rawset(t, colorStr, hex)
+      return hex
+    end
+  })
 
   -- SP school colors indexed by GetSpellBonusDamage's 1-based school order
   -- (1=phys, 2=holy, 3=fire, 4=nature, 5=frost, 6=shadow, 7=arcane)
-  local spColors = { "FFFFFF", "FFFF80", "FF8000", "4DFF4D", "80FFFF", "9482C9", "FFFFFF" }
+  local spColors = { "FFFFFFFF", "FFFFFF80", "FFFF8000", "FF4DFF4D", "FF80FFFF", "FF9482C9", "FFFFFFFF" }
 
   -- Default SP school per class used as tiebreaker when multiple schools are equal
   local spDefaultSchool = {
@@ -68,42 +71,37 @@ pfUI:RegisterModule("player", function ()
     -- from UNIT_MOD_CAST_SPEED). Talent/spell-specific cast-time reductions
     -- show up in the actual cast bar via C_Spell.UnitCastingInfo; folding them
     -- in here too was mixing two different concepts into one number.
-    local showHaste = cfg.display_haste == "1"
-    local showSP = cfg.display_spellpower == "1"
-
     local isSpellCaster = playerFrame.isSpellCaster
-    if (not showHaste or not isSpellCaster) and not showSP then
+    local showHaste = isSpellCaster and cfg.display_haste == "1"
+    local showSP    = isSpellCaster and cfg.display_spellpower == "1"
+
+    if not showHaste and not showSP then
       playerFrame.infoTopCenterText:SetText("")
       return
     end
 
-    local haste = UnitSpellHaste("player")
-    local text = ""
+    local parts = {}
 
-    if showHaste and isSpellCaster and haste then
-      local hasteHex = cfgColorToHex(cfg.display_haste_color) or "FFFFFF"
-      text = string.format("|cff%s%.1f%%|r", hasteHex, haste)
+    if showHaste then
+      local hex = cfgColorToHexTable[cfg.display_haste_color] or "FFFFFFFF"
+      table.insert(parts, string.format("|c%s%.1f%%|r", hex, UnitSpellHaste("player")))
     end
 
-    if showSP and isSpellCaster then
-      local defSchool = spDefaultSchool[myclass] or 2
-      local maxSP = GetSpellBonusDamage(defSchool) or 0
-      local maxColor = spColors[defSchool]
-      for i = 2, 7 do  -- skip physical (1); default school seeds the tiebreak
+    if showSP then
+      local school = spDefaultSchool[myclass] or 2
+      local maxSP = GetSpellBonusDamage(school) or 0
+      for i = 2, 7 do  -- skip physical (1)
         local v = GetSpellBonusDamage(i) or 0
-        if v > maxSP then
-          maxSP = v
-          maxColor = spColors[i]
-        end
+        if v > maxSP then maxSP, school = v, i end
       end
+
       if maxSP > 0 then
-        local spHex = (cfg.display_sp_color_override == "1" and cfgColorToHex(cfg.display_sp_color)) or maxColor
-        if text ~= "" then text = text .. "    " end
-        text = text .. string.format("|cff%s+%d SP|r", spHex, maxSP)
+        local hex = (cfg.display_sp_color_override == "1" and cfgColorToHexTable[cfg.display_sp_color]) or spColors[school]
+        table.insert(parts, string.format("|c%s+%d SP|r", hex, maxSP))
       end
     end
 
-    playerFrame.infoTopCenterText:SetText(text)
+    playerFrame.infoTopCenterText:SetText(table.concat(parts, "    "))
   end
 
   -- Keep a reference to the generic UF UpdateConfig so we can chain it
