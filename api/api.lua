@@ -397,14 +397,33 @@ end
 -- Returns an itemLink for the given itemname
 -- 'name'       [string]         name of the item
 -- returns:     [string]         entire itemLink for the given item
+local itemLinkCache = {}
+local itemLinkMisses = {}
+local ITEMLINK_MAX_SCANS = 2
 function pfUI.api.GetItemLinkByName(name)
-  for itemID = 1, 25818 do
+  -- GetInboxItem() hands us a nil name for attachment-less mail
+  if not name then return end
+  -- cache successful resolutions so repeated lookups (e.g. per inbox click) are free
+  if itemLinkCache[name] then return itemLinkCache[name] end
+
+  -- Failures have to be counted, not just retried. An unresolvable name walks
+  -- the entire id range and finds nothing -- a visible hitch on every tooltip
+  -- hover. Allow a couple of attempts (rendering the tooltip caches the item,
+  -- so the next hover usually resolves), then stop scanning for that name.
+  local misses = itemLinkMisses[name] or 0
+  if misses >= ITEMLINK_MAX_SCANS then return end
+
+  -- Octo/Turtle custom items live well past the 25818 vanilla ceiling
+  for itemID = 1, 61000 do
     local itemName = C_Item.GetItemNameByID(itemID)
     if itemName and itemName == name then
       local _, itemLink = C_Item.GetItemInfo(itemID)
+      itemLinkCache[name] = itemLink
       return itemLink
     end
   end
+
+  itemLinkMisses[name] = misses + 1
 end
 
 -- [ FindItem ]

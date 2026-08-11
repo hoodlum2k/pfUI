@@ -169,6 +169,9 @@ pfUI:RegisterModule("unitxp", function ()
 
           local throttle = 0
           local scanner = CreateFrame("Frame")
+          -- expose the poller frame so PLAYER_LOGOUT can stop its UnitXP OnUpdate
+          -- (it lives on this separate frame, not on distanceIndicator) -> crash 132
+          pfUI.uf.target.distanceScanner = scanner
           scanner:SetScript("OnUpdate", function()
             throttle = throttle + arg1
             if throttle < 0.05 then return end
@@ -236,6 +239,10 @@ pfUI:RegisterModule("unitxp", function ()
         if pfUI.uf.target.distanceIndicator then
           pfUI.uf.target.distanceIndicator:SetScript("OnUpdate", nil)
         end
+        -- free-frame mode polls from its own scanner frame, not the indicator
+        if pfUI.uf.target.distanceScanner then
+          pfUI.uf.target.distanceScanner:SetScript("OnUpdate", nil)
+        end
       end
       return
     end
@@ -268,7 +275,9 @@ pfUI:RegisterModule("unitxp", function ()
     -- Also notify on BG queue pop
     local origBattlefieldPortShow = BattlefieldFrame_Show
     if origBattlefieldPortShow then
-      BattlefieldFrame_Show = function()
+      -- pfUI.env has __index but no __newindex, so a bare global assignment
+      -- inside a RegisterModule closure never leaves the sandbox
+      _G.BattlefieldFrame_Show = function()
         pcall(UnitXP, "notify", "taskbarIcon")
         pcall(UnitXP, "notify", "systemSound")
         return origBattlefieldPortShow()

@@ -1222,7 +1222,7 @@ libpredict.sender:SetScript("OnEvent", function()
 end)
 
 function libpredict:GetHotDuration(unit, spell)
-  if unit == UNKNOWNOBJECT or unit == UNKOWNBEING then return end
+  if unit == UNKNOWNOBJECT or unit == UKNOWNBEING then return end
   
   -- NEW: Try libdebuff first (Nampower AURA_CAST events)
   if pfUI.api.libdebuff and pfUI.api.libdebuff.GetBestAuraCast then
