@@ -1154,11 +1154,20 @@ nameplates:RegisterEvent("PLAYER_GUILD_UPDATE")
       plate.level:SetText(string.format("%s%s", level, (elitestrings[elite] or "")))
     end
 
-    -- Set level color from GetDifficultyColor when using DB level
+    -- Set level color from GetDifficultyColor when using DB level.
+    -- No brightening here: adding a flat offset to all three channels
+    -- desaturates every tier toward white and collapses the boundaries
+    -- (orange reads as yellow, red reads as orange). Use Blizzard's values.
+    -- Clearing cache.levelcolor forces the sync block in OnUpdate to
+    -- re-colour once the ?? resolves and it takes ownership again.
     if levelFromDB and type(level) == "number" then
       local color = GetDifficultyColor(level)
-      plate.level:SetTextColor(color.r + 0.3, color.g + 0.3, color.b + 0.3, 1)
+      plate.level:SetTextColor(color.r, color.g, color.b, 1)
+      plate.cache.levelcolor = nil
     end
+
+    -- remember who owns the level colour so the two writers cannot fight
+    plate.cache.levelfromdb = levelFromDB or nil
 
     if guild and C.nameplates.showguildname == "1" then
       plate.guild:SetText(guild)
@@ -1251,9 +1260,32 @@ nameplates:RegisterEvent("PLAYER_GUILD_UPDATE")
       plate.cache.r, plate.cache.g, plate.cache.b = r, g, b
     end
 
-    if r + g + b ~= plate.cache.namecolor and unittype == "FRIENDLY_PLAYER" and C.nameplates["friendclassnamec"] == "1" and class and PFUI_CLASS_COLORS[class] then
-      plate.name:SetTextColor(r, g, b, a)
-      plate.cache.namecolor = r + g + b
+    -- Friendly player names take this colour when friendclassnamec is on.
+    -- Ownership is recorded so the OnUpdate sync below stands down rather than
+    -- racing us: both writers used to share cache.namecolor despite storing
+    -- unrelated quantities (this colour vs Blizzard's name FontString), so
+    -- either could suppress the other -- and since nameplate.cache survives
+    -- pool reuse, a recycled plate could keep the previous unit's name colour.
+    local ownname = unittype == "FRIENDLY_PLAYER" and C.nameplates["friendclassnamec"] == "1"
+      and class and true or nil
+
+    if plate.cache.ownname ~= ownname then
+      plate.cache.ownname = ownname
+      -- ownership flipped: whichever writer is now in charge must re-assert
+      plate.cache.namecolor = nil
+      plate.cache.ownnamecolor = nil
+    end
+
+    -- read the class colour directly rather than reusing the bar's r,g,b: the
+    -- bar only carries a class colour when friendclassc happens to be on, and
+    -- it also picks up the tapped-grey and barcombatstate overrides, neither of
+    -- which belongs on the name.
+    if ownname then
+      local cr, cg, cb, ca = PFUI_CLASS_COLORS[class]:GetRGBA()
+      if cr + cg + cb ~= plate.cache.ownnamecolor then
+        plate.cache.ownnamecolor = cr + cg + cb
+        plate.name:SetTextColor(cr, cg, cb, ca)
+      end
     end
 
     if target and C.nameplates.cpdisplay == "1" then
@@ -1521,33 +1553,41 @@ nameplates:RegisterEvent("PLAYER_GUILD_UPDATE")
       update = true
     end
 
-    -- trigger update when name color changed (includes combat state check)
-    local r, g, b = original.name:GetTextColor()
-    local inCombatWithPlayer = cfg.namefightcolor and UnitAffectingCombat(nameplate.unit) and UnitAffectingCombat("player")
-    
-    if r + g + b ~= nameplate.cache.namecolor or (cfg.namefightcolor and nameplate.cache.inCombat ~= inCombatWithPlayer) then
-      nameplate.cache.namecolor = r + g + b
-      nameplate.cache.inCombat = inCombatWithPlayer
+    -- trigger update when name color changed (includes combat state check).
+    -- Skipped once OnDataChanged owns the name colour (class-coloured friendly
+    -- players), so the two writers cannot overwrite each other.
+    if not nameplate.cache.ownname then
+      local r, g, b = original.name:GetTextColor()
+      local inCombatWithPlayer = cfg.namefightcolor and UnitAffectingCombat(nameplate.unit) and UnitAffectingCombat("player")
 
-      if cfg.namefightcolor then
-        if (r > .9 and g < .2 and b < .2) or inCombatWithPlayer then
-          nameplate.name:SetTextColor(1,0.4,0.2,1)
+      if r + g + b ~= nameplate.cache.namecolor or (cfg.namefightcolor and nameplate.cache.inCombat ~= inCombatWithPlayer) then
+        nameplate.cache.namecolor = r + g + b
+        nameplate.cache.inCombat = inCombatWithPlayer
+
+        if cfg.namefightcolor then
+          if (r > .9 and g < .2 and b < .2) or inCombatWithPlayer then
+            nameplate.name:SetTextColor(1,0.4,0.2,1)
+          else
+            nameplate.name:SetTextColor(r,g,b,1)
+          end
         else
-          nameplate.name:SetTextColor(r,g,b,1)
+          nameplate.name:SetTextColor(1,1,1,1)
         end
-      else
-        nameplate.name:SetTextColor(1,1,1,1)
+        update = true
       end
-      update = true
     end
 
-    -- trigger update when level color changed
-    local r, g, b = original.level:GetTextColor()
-    r, g, b = r + .3, g + .3, b + .3
-    if r + g + b ~= nameplate.cache.levelcolor then
-      nameplate.cache.levelcolor = r + g + b
-      nameplate.level:SetTextColor(r,g,b,1)
-      update = true
+    -- trigger update when level color changed. Skipped while the level came
+    -- from the database (?? plates), where OnDataChanged owns the colour --
+    -- otherwise both writers race and cache.levelcolor goes stale, which
+    -- leaves a recycled plate wearing the previous unit's colour.
+    if not nameplate.cache.levelfromdb then
+      local r, g, b = original.level:GetTextColor()
+      if r + g + b ~= nameplate.cache.levelcolor then
+        nameplate.cache.levelcolor = r + g + b
+        nameplate.level:SetTextColor(r,g,b,1)
+        update = true
+      end
     end
 
     -- use timer based updates
